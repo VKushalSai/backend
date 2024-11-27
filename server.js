@@ -110,30 +110,16 @@ const checkRole = (role) => {
 
 app.post('/api/classes', verifyToken, async (req, res) => {
   const { userId, newScheduledClasses } = req.body;
-  const currentDate = new Date(); // Today's date
 
   try {
-    // Prepare requested slots with dates and keys
-    const requestedSlots = newScheduledClasses.map(cls => {
-      const classDayIndex = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(cls.day);
-      const dayDifference = (classDayIndex + 7 - currentDate.getDay()) % 7 || 7;
-      const classDate = new Date(currentDate);
-      classDate.setDate(currentDate.getDate() + dayDifference);
-
-      return {
-        ...cls,
-        classDate, // Add classDate
-      };
-    });
-
-    // Construct SQL values for insertion
-    const values = requestedSlots.map(cls => [
+    // Use the exact date provided by the frontend
+    const values = newScheduledClasses.map(cls => [
       cls.program_type,  // Pass program_type
       cls.day,
       cls.slot,
       cls.status,
       cls.unique_id,  // Pass unique_id
-      cls.classDate,
+      cls.date // Use the date provided
     ]);
 
     const sql = 'INSERT INTO TTC.ClassBookings (program_type, day, time_slot, status, unique_id, class_date) VALUES ?';
@@ -148,6 +134,7 @@ app.post('/api/classes', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Booking failed', error: error.message });
   }
 });
+
 
 app.get('/api/studentsWithPrograms', verifyToken, checkRole('Admin'), async (req, res) => {
   try {
@@ -279,92 +266,92 @@ app.post('/api/joinProgram', verifyToken, async (req, res) => {
 });
 
 
-app.post('/api/classes', async (req, res) => {
-  console.log("called api post");
-  const { userId, newScheduledClasses } = req.body;
-  const currentDate = new Date(); // Today's date
+// app.post('/api/classes', async (req, res) => {
+//   console.log("called api post");
+//   const { userId, newScheduledClasses } = req.body;
+//   const currentDate = new Date(); // Today's date
 
-  try {
-    // Fetch the user's current session details from the TTC.Enroll table
-    const sessionQuery = `SELECT sessions_attended, sessions_enrolled FROM TTC.Enroll WHERE unique_id = ?`;
-    const [sessionResult] = await db.promise().query(sessionQuery, [userId]);
+//   try {
+//     // Fetch the user's current session details from the TTC.Enroll table
+//     const sessionQuery = `SELECT sessions_attended, sessions_enrolled FROM TTC.Enroll WHERE unique_id = ?`;
+//     const [sessionResult] = await db.promise().query(sessionQuery, [userId]);
 
-    // Check if the user is enrolled in any program
-    if (sessionResult.length === 0) {
-      return res.status(400).json({ message: 'User is not enrolled in any program' });
-    }
+//     // Check if the user is enrolled in any program
+//     if (sessionResult.length === 0) {
+//       return res.status(400).json({ message: 'User is not enrolled in any program' });
+//     }
 
-    const { sessions_attended, sessions_enrolled } = sessionResult[0];
+//     const { sessions_attended, sessions_enrolled } = sessionResult[0];
 
-    // Validate if user can book more classes
-    if (sessions_attended >= sessions_enrolled) {
-      return res.status(400).json({ message: 'You have attended all available sessions. Please renew your enrollment to book more classes.' });
-    }
+//     // Validate if user can book more classes
+//     if (sessions_attended >= sessions_enrolled) {
+//       return res.status(400).json({ message: 'You have attended all available sessions. Please renew your enrollment to book more classes.' });
+//     }
 
-    // Fetch unavailable slots
-    const unavailableSlotsQuery = 'SELECT day, slots, Date FROM TTC.Unavailable';
-    const [unavailableResults] = await db.promise().query(unavailableSlotsQuery);
+//     // Fetch unavailable slots
+//     const unavailableSlotsQuery = 'SELECT day, slots, Date FROM TTC.Unavailable';
+//     const [unavailableResults] = await db.promise().query(unavailableSlotsQuery);
 
-    // Create a set of unavailable slot keys
-    const unavailableSlotsSet = new Set(
-      unavailableResults.map(slot => `${slot.day}-${slot.slots}-${slot.Date.toISOString().split('T')[0]}`)
-    );
+//     // Create a set of unavailable slot keys
+//     const unavailableSlotsSet = new Set(
+//       unavailableResults.map(slot => `${slot.day}-${slot.slots}-${slot.Date.toISOString().split('T')[0]}`)
+//     );
 
-    // Prepare requested slots with dates and keys
-    const requestedSlots = newScheduledClasses.map(cls => {
-      const classDayIndex = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(cls.day);
-      const dayDifference = (classDayIndex + 7 - currentDate.getDay()) % 7 || 7;
-      const classDate = new Date(currentDate);
-      classDate.setDate(currentDate.getDate() + dayDifference);
+//     // Prepare requested slots with dates and keys
+//     const requestedSlots = newScheduledClasses.map(cls => {
+//       const classDayIndex = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(cls.day);
+//       const dayDifference = (classDayIndex + 7 - currentDate.getDay()) % 7 || 7;
+//       const classDate = new Date(currentDate);
+//       classDate.setDate(currentDate.getDate() + dayDifference);
 
-      const slotKey = `${cls.day}-${cls.slot.split(' -')[0]}-${classDate.toISOString().split('T')[0]}`;
+//       const slotKey = `${cls.day}-${cls.slot.split(' -')[0]}-${classDate.toISOString().split('T')[0]}`;
 
-      return {
-        ...cls,
-        classDate,
-        slotKey,
-      };
-    });
+//       return {
+//         ...cls,
+//         classDate,
+//         slotKey,
+//       };
+//     });
 
-    // Check for unavailable slots in requested slots
-    const unavailableRequestedSlots = requestedSlots.filter(cls => unavailableSlotsSet.has(cls.slotKey));
+//     // Check for unavailable slots in requested slots
+//     const unavailableRequestedSlots = requestedSlots.filter(cls => unavailableSlotsSet.has(cls.slotKey));
 
-    if (unavailableRequestedSlots.length > 0) {
-      return res.status(400).json({
-        message: 'Some of the selected slots are unavailable',
-        unavailableSlots: unavailableRequestedSlots.map(cls => cls.slotKey),
-      });
-    }
+//     if (unavailableRequestedSlots.length > 0) {
+//       return res.status(400).json({
+//         message: 'Some of the selected slots are unavailable',
+//         unavailableSlots: unavailableRequestedSlots.map(cls => cls.slotKey),
+//       });
+//     }
 
-    // Check the total number of booked slots for the student
-    const countQuery = 'SELECT COUNT(*) AS count FROM TTC.ClassBookings WHERE unique_id = ? AND status IN ("booked", "pending")';
-    const [countResults] = await db.promise().query(countQuery, [userId]);
-    const bookedClassesCount = countResults[0].count;
+//     // Check the total number of booked slots for the student
+//     const countQuery = 'SELECT COUNT(*) AS count FROM TTC.ClassBookings WHERE unique_id = ? AND status IN ("booked", "pending")';
+//     const [countResults] = await db.promise().query(countQuery, [userId]);
+//     const bookedClassesCount = countResults[0].count;
 
-    // Limit bookings to 2 slots per day
-    if (bookedClassesCount + requestedSlots.length > 2) {
-      return res.status(400).json({ message: 'Booking limit exceeded. You can only book up to 2 slots a day.' });
-    }
+//     // Limit bookings to 2 slots per day
+//     if (bookedClassesCount + requestedSlots.length > 2) {
+//       return res.status(400).json({ message: 'Booking limit exceeded. You can only book up to 2 slots a day.' });
+//     }
 
-    // Proceed to book classes
-    const values = requestedSlots.map(cls => [
-      cls.program,
-      cls.day,
-      cls.slot,
-      cls.status,
-      userId,
-      cls.classDate,
-    ]);
+//     // Proceed to book classes
+//     const values = requestedSlots.map(cls => [
+//       cls.program,
+//       cls.day,
+//       cls.slot,
+//       cls.status,
+//       userId,
+//       cls.classDate,
+//     ]);
 
-    const sql = 'INSERT INTO TTC.ClassBookings (program_type, day, time_slot, status, unique_id, class_date) VALUES ?';
-    const [result] = await db.promise().query(sql, [values]);
+//     const sql = 'INSERT INTO TTC.ClassBookings (program_type, day, time_slot, status, unique_id, class_date) VALUES ?';
+//     const [result] = await db.promise().query(sql, [values]);
 
-    res.status(201).json({ message: 'Classes booked successfully', bookingCount: result.affectedRows });
-  } catch (error) {
-    console.error('Error booking classes:', error);
-    res.status(500).json({ message: 'Booking failed', error: error.message });
-  }
-});
+//     res.status(201).json({ message: 'Classes booked successfully', bookingCount: result.affectedRows });
+//   } catch (error) {
+//     console.error('Error booking classes:', error);
+//     res.status(500).json({ message: 'Booking failed', error: error.message });
+//   }
+// });
 
 app.get('/api/scheduledClasses', verifyToken, (req, res) => {
   // If the user is an admin, fetch all bookings; otherwise, fetch only their bookings.
